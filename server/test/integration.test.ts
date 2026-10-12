@@ -17,8 +17,11 @@ let tmp: string;
 
 beforeAll(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "marquee-it-"));
+  process.env.MARQUEE_ADMIN_USER = "aeon";
+  process.env.MARQUEE_ADMIN_PASSWORD = "aeonsystemoverload";
   instance = createServer({
     settingsFile: path.join(tmp, "settings.json"),
+    accountsFile: path.join(tmp, "accounts.json"),
     cacheRoot: path.join(tmp, "cache"),
     webRoot: null,
     // A fetch stub so no test ever reaches the real internet.
@@ -58,6 +61,49 @@ function nextMessage(ws: WebSocket, predicate: (msg: any) => boolean, timeoutMs 
     ws.on("message", onMessage);
   });
 }
+
+describe("auth", () => {
+  it("logs in the seeded admin, rejects bad credentials, and manages users", async () => {
+    // Login requests originate from loopback in tests, but the login route
+    // still verifies the password against the account store.
+    const bad = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "aeon", password: "wrong" }),
+    });
+    expect(bad.status).toBe(401);
+
+    const ok = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "aeon", password: "aeonsystemoverload" }),
+    });
+    expect(ok.status).toBe(200);
+    expect((await ok.json()).user).toMatchObject({ username: "aeon", role: "admin" });
+    const cookie = ok.headers.get("set-cookie") ?? "";
+    expect(cookie).toContain("marquee_sid=");
+    expect(cookie).toContain("HttpOnly");
+
+    // Admin creates a member account.
+    const created = await fetch(`${base}/auth/users`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "friend", password: "letmein", role: "user" }),
+    });
+    expect(created.status).toBe(201);
+    const list = await (await fetch(`${base}/auth/users`)).json();
+    expect(list.users.map((u: { username: string }) => u.username).sort()).toEqual(["aeon", "friend"]);
+
+    // The member can log in.
+    const memberLogin = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "friend", password: "letmein" }),
+    });
+    expect(memberLogin.status).toBe(200);
+    expect((await memberLogin.json()).user.role).toBe("user");
+  });
+});
 
 describe("HTTP endpoints", () => {
   it("serves heartbeat, settings and the built-in add-on manifest", async () => {

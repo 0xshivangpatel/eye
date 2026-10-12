@@ -7,6 +7,15 @@ const BASE = "http://127.0.0.1:11470/app/";
 const browser = await chromium.launch();
 const fail = (m) => { console.error("FAIL:", m); process.exitCode = 1; };
 
+async function login(page) {
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".login-card", { timeout: 15000 });
+  await page.fill(".login-card input[autocomplete='username']", process.env.MARQUEE_E2E_USER || "aeon");
+  await page.fill(".login-card input[type=password]", process.env.MARQUEE_E2E_PASS || "aeonsystemoverload");
+  await page.getByRole("button", { name: /Sign in/i }).click();
+  await page.waitForSelector(".topnav", { timeout: 15000 });
+}
+
 async function newPage(ctxName) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -16,6 +25,7 @@ async function newPage(ctxName) {
 
 // 1) Home renders at least one catalog row (needs cinemeta; real network).
 const host = await newPage("host");
+await login(host.page);
 await host.page.goto(BASE, { waitUntil: "domcontentloaded" });
 await host.page.waitForSelector(".row .card:not(.skeleton), .empty", { timeout: 25000 });
 const rowCount = await host.page.locator(".row").count();
@@ -36,6 +46,7 @@ if (code.length !== 6) fail("room code not shown");
 
 // 3) Second browser joins by code.
 const guest = await newPage("guest");
+await login(guest.page);
 await guest.page.goto(BASE + "#/party/" + code, { waitUntil: "domcontentloaded" });
 await guest.page.fill(".field input", "Bob");
 await guest.page.getByRole("button", { name: /Join room/i }).click();

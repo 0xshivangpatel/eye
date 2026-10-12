@@ -14,6 +14,9 @@ import { mediaRouter } from "./routes/media.js";
 import { iptvRouter } from "./routes/iptv.js";
 import { openMoviesRouter } from "./addon/openMovies.js";
 import { attachParty } from "./party/ws.js";
+import { AccountStore } from "./accounts.js";
+import { SessionManager } from "./auth.js";
+import { authRouter } from "./routes/auth.js";
 import type { RealDebridOptions } from "./debrid/realdebrid.js";
 
 export interface AppOptions {
@@ -31,6 +34,8 @@ export interface AppOptions {
   adminToken?: string | null;
   /** Let remote peers resolve streams through the server's debrid account. */
   shareDebrid?: boolean;
+  /** Where the user-accounts file lives (defaults under appDir). */
+  accountsFile?: string;
 }
 
 const PRIVATE_HOST = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/;
@@ -85,21 +90,17 @@ export function createServer(options: AppOptions = {}) {
     ...(process.env.MARQUEE_ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   ];
   const adminToken = options.adminToken ?? process.env.MARQUEE_ADMIN_TOKEN ?? null;
-  // When the owner self-hosts on a VPS and wants peers to stream through the
-  // server's single debrid account, they opt in with MARQUEE_SHARE_DEBRID=1.
-  // This never exposes the token itself — only the ability to resolve streams.
-  const shareDebrid = options.shareDebrid ?? process.env.MARQUEE_SHARE_DEBRID === "1";
+  const trustLan = process.env.MARQUEE_TRUST_LAN === "1";
 
-  // Admin-only: configure the token, change settings, browse the owner's cloud.
-  const requireAdmin = (req: Request, res: Response, next: NextFunction): void => {
-    if (isAdminRequest(req, adminToken)) return next();
-    res.status(403).json({ error: "Admin only. Run this from the server host, or send the admin token.", code: "admin_only" });
-  };
-  // Playback: admin always; peers only when sharing is enabled.
-  const allowPlayback = (req: Request, res: Response, next: NextFunction): void => {
-    if (shareDebrid || isAdminRequest(req, adminToken)) return next();
-    res.status(403).json({ error: "Debrid playback is not shared on this server.", code: "not_shared" });
-  };
+  // Private app: every account is created by the admin (no public sign-up). The
+  // seeded admin can log in from a browser; a loopback request or the admin
+  // token also act as admin for headless/VPS setup.
+  const accounts = new AccountStore(options.accountsFile);
+  const loopbackAdmin = process.env.MARQUEE_DISABLE_LOOPBACK_ADMIN !== "1";
+  const sessions = new SessionManager(adminToken, trustLan, loopbackAdmin);
+  // Any signed-in user may watch (resolve streams); admins configure the server.
+  const requireAuth = sessions.requireAuth;
+  const requireAdmin = sessions.requireAdmin;
 
   const app = express();
   app.disable("x-powered-by");
@@ -124,39 +125,14 @@ export function createServer(options: AppOptions = {}) {
   });
   app.use(express.json({ limit: "1mb" }));
 
+  // --- public endpoints ---
   app.get("/heartbeat", (_req, res) => {
     res.json({ success: true });
   });
-  app.get("/settings", (_req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ values: settings.publicView(), serverVersion: "0.1.0", app: "marquee" });
-  });
-  app.post("/settings", requireAdmin, (req, res) => {
-    settings.update((req.body ?? {}) as Record<string, unknown>);
-    res.json({ success: true, values: settings.publicView() });
-  });
-  app.get("/network-info", (_req, res) => {
-    const availableInterfaces = Object.values(os.networkInterfaces())
-      .flat()
-      .filter((a) => a && !a.internal && a.family === "IPv4")
-      .map((a) => a!.address);
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ availableInterfaces });
-  });
+  app.use("/auth", authRouter(accounts, sessions));
 
-  app.use("/debrid", debridRouter(settings, debrid, { requireAdmin, allowPlayback, shareDebrid, fetchImpl: options.fetchImpl }));
-  app.use("/iptv", iptvRouter(options.fetchImpl));
-  app.use("/addon/open-movies", openMoviesRouter());
-  app.use(
-    "/",
-    mediaRouter({
-      ffmpeg: options.ffmpeg ?? process.env.FFMPEG_BIN ?? "ffmpeg",
-      ffprobe: options.ffprobe ?? process.env.FFPROBE_BIN ?? "ffprobe",
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-    }),
-  );
-
-  // Serve the built web client when present; it is a single-page app.
+  // Serve the built web client (public, so the login screen can load). The SPA
+  // itself calls the protected APIs and shows the login page on a 401.
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webRoot = options.webRoot === undefined ? path.resolve(here, "../../web/dist") : options.webRoot;
   if (webRoot && fs.existsSync(path.join(webRoot, "index.html"))) {
@@ -165,21 +141,56 @@ export function createServer(options: AppOptions = {}) {
     app.get("/", (_req, res) => res.redirect(302, "/app/"));
   }
 
+  // --- everything below requires a signed-in account ---
+  app.get("/settings", requireAuth, (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ values: settings.publicView(), serverVersion: "0.1.0", app: "marquee" });
+  });
+  app.post("/settings", requireAdmin, (req, res) => {
+    settings.update((req.body ?? {}) as Record<string, unknown>);
+    res.json({ success: true, values: settings.publicView() });
+  });
+  app.get("/network-info", requireAuth, (_req, res) => {
+    const availableInterfaces = Object.values(os.networkInterfaces())
+      .flat()
+      .filter((a) => a && !a.internal && a.family === "IPv4")
+      .map((a) => a!.address);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ availableInterfaces });
+  });
+
+  // Debrid: any signed-in user may resolve streams; only admins configure it.
+  app.use("/debrid", requireAuth, debridRouter(settings, debrid, { requireAdmin, allowPlayback: requireAuth, shareDebrid: true, fetchImpl: options.fetchImpl }));
+  app.use("/iptv", requireAuth, iptvRouter(options.fetchImpl));
+  app.use("/addon/open-movies", requireAuth, openMoviesRouter());
+  app.use(
+    "/",
+    requireAuth,
+    mediaRouter({
+      ffmpeg: options.ffmpeg ?? process.env.FFMPEG_BIN ?? "ffmpeg",
+      ffprobe: options.ffprobe ?? process.env.FFPROBE_BIN ?? "ffprobe",
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    }),
+  );
+
   // Torrent routes last: their /:infoHash patterns would shadow everything else.
-  app.use("/", torrentRouter(engines));
+  app.use("/", requireAuth, torrentRouter(engines));
 
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     if (!res.headersSent) res.status(500).json({ error: err.message });
   });
 
   const server = http.createServer(app);
-  const party = attachParty(server);
+  // Watch-together requires a signed-in account (or the headless admin bypass).
+  const party = attachParty(server, "/party", undefined, (req) => sessions.authorizeSocket(req));
   return {
     app,
     server,
     settings,
     engines,
     debrid,
+    accounts,
+    sessions,
     party,
     async close() {
       party.close();

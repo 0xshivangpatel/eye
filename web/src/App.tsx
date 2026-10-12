@@ -2,6 +2,7 @@ import { NavLink, Route, HashRouter, Routes, useNavigate } from "react-router-do
 import { StoreProvider } from "./store";
 import { PlayerProvider } from "./player";
 import { UIProvider } from "./ui";
+import { AuthGate, AuthProvider } from "./auth";
 import { Home } from "./pages/Home";
 import { Search } from "./pages/Search";
 import { Library } from "./pages/Library";
@@ -34,26 +35,30 @@ function TopNav() {
 
 export default function App() {
   return (
-    <HashRouter>
-      <StoreProvider>
-        <PlayerProvider>
-          <UIProvider>
-            <TopNav />
-            <main className="app-main">
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/search" element={<Search />} />
-                <Route path="/live" element={<LiveTV />} />
-                <Route path="/library" element={<Library />} />
-                <Route path="/party" element={<Party />} />
-                <Route path="/party/:code" element={<Party />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="*" element={<Home />} />
-              </Routes>
-            </main>
-          </UIProvider>
-        </PlayerProvider>
-      </StoreProvider>
-    </HashRouter>
+    <AuthProvider>
+      <AuthGate>
+        <HashRouter>
+          <StoreProvider>
+            <PlayerProvider>
+              <UIProvider>
+                <TopNav />
+                <main className="app-main">
+                  <Routes>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/search" element={<Search />} />
+                    <Route path="/live" element={<LiveTV />} />
+                    <Route path="/library" element={<Library />} />
+                    <Route path="/party" element={<Party />} />
+                    <Route path="/party/:code" element={<Party />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="*" element={<Home />} />
+                  </Routes>
+                </main>
+              </UIProvider>
+            </PlayerProvider>
+          </StoreProvider>
+        </HashRouter>
+      </AuthGate>
+    </AuthProvider>
   );
 }

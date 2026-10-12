@@ -19,13 +19,23 @@ interface Connection {
 
 const MAX_FRAME = 64 * 1024;
 
-export function attachParty(server: Server, path = "/party", registry = new RoomRegistry()) {
+export function attachParty(
+  server: Server,
+  path = "/party",
+  registry = new RoomRegistry(),
+  authorize: (req: IncomingMessage) => boolean = () => true,
+) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
   const connections = new Map<string, Connection>();
 
   server.on("upgrade", (req: IncomingMessage, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== path) return;
+    if (!authorize(req)) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   });
 

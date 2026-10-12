@@ -2,40 +2,122 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { serverApi, iptvApi } from "../api/server";
 import { useDisplayName } from "../player";
+import { useAuth } from "../auth";
+import { authApi, type User } from "../api/auth";
 
 export function Settings() {
   const [name, setName] = useDisplayName();
+  const { isAdmin } = useAuth();
   return (
     <div className="page page-pad settings">
       <h1 className="page-h1">Settings</h1>
-      <ProfileSection name={name} setName={setName} />
-      <DebridSection />
+      <AccountSection name={name} setName={setName} />
+      {isAdmin && <UsersSection />}
+      {isAdmin && <DebridSection />}
       <AddonsSection />
       <IptvSection />
     </div>
   );
 }
 
-function ProfileSection({ name, setName }: { name: string; setName: (n: string) => void }) {
-  const store = useStore();
-  const [token, setToken] = useState(store.adminToken);
+function AccountSection({ name, setName }: { name: string; setName: (n: string) => void }) {
+  const { user, logout } = useAuth();
   return (
     <section className="settings-card">
-      <h2>Profile</h2>
+      <h2>Account</h2>
+      <p className="muted">
+        Signed in as <strong>{user?.username}</strong> ({user?.role}).
+      </p>
       <label className="field">
         <span>Display name (shown in watch-together)</span>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
       </label>
-      <label className="field">
-        <span>Server admin token (only needed for a shared VPS)</span>
-        <input
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          onBlur={() => store.setAdminToken(token)}
-          placeholder="MARQUEE_ADMIN_TOKEN"
-          type="password"
-        />
-      </label>
+      <button className="btn" onClick={() => void logout()} type="button">
+        Sign out
+      </button>
+    </section>
+  );
+}
+
+function UsersSection() {
+  const { user: self } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
+  const [form, setForm] = useState({ username: "", password: "", role: "user" as "user" | "admin" });
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const refresh = () => authApi.listUsers().then((r) => setUsers(r.users)).catch((e) => setMsg(e.message));
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const create = async () => {
+    setMsg(null);
+    try {
+      await authApi.createUser(form.username, form.password, form.role);
+      setForm({ username: "", password: "", role: "user" });
+      await refresh();
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setMsg(null);
+    try {
+      await authApi.deleteUser(id);
+      await refresh();
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
+
+  const resetPassword = async (id: string) => {
+    const pw = prompt("New password (min 6 characters):");
+    if (!pw) return;
+    try {
+      await authApi.setPassword(id, pw);
+      setMsg("Password updated.");
+    } catch (e) {
+      setMsg((e as Error).message);
+    }
+  };
+
+  return (
+    <section className="settings-card">
+      <h2>People</h2>
+      <p className="muted">There is no public sign-up. Create an account for each person you want to let in.</p>
+      <div className="user-form">
+        <input placeholder="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+        <input placeholder="Password" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as "user" | "admin" })}>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button className="btn btn-primary" disabled={!form.username || !form.password} onClick={create} type="button">
+          Create
+        </button>
+      </div>
+      {msg && <div className="field-msg">{msg}</div>}
+      <ul className="addon-list">
+        {users.map((u) => (
+          <li key={u.id}>
+            <div>
+              <strong>{u.username}</strong> <span className="muted small">{u.role}</span>
+              {u.id === self?.id && <span className="tag">you</span>}
+            </div>
+            <div className="party-buttons">
+              <button className="btn" onClick={() => resetPassword(u.id)} type="button">
+                Reset password
+              </button>
+              {u.id !== self?.id && (
+                <button className="btn" onClick={() => remove(u.id)} type="button">
+                  Remove
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
