@@ -1,0 +1,4 @@
+{
+  "files": [],
+  "comment": "Per-workspace tsconfigs live in server/ and web/. Build with `npm run build`."
+}
