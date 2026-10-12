@@ -11,7 +11,7 @@ async function login(page) {
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".login-card", { timeout: 15000 });
   await page.fill(".login-card input[autocomplete='username']", process.env.MARQUEE_E2E_USER || "aeon");
-  await page.fill(".login-card input[type=password]", process.env.MARQUEE_E2E_PASS || "aeonsystemoverload");
+  await page.fill(".login-card input[type=password]", process.env.MARQUEE_E2E_PASS || "test-admin-pw-123");
   await page.getByRole("button", { name: /Sign in/i }).click();
   await page.waitForSelector(".topnav", { timeout: 15000 });
 }

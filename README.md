@@ -62,8 +62,18 @@ For development with hot reload:
 npm run dev            # server on :11470, Vite web on :8080 (proxied)
 ```
 
-Then open the app, go to **Settings** and link your Real-Debrid account and/or
-add an IPTV source.
+On first run an **admin account** (`aeon` by default) is created. Set
+`MARQUEE_ADMIN_PASSWORD` to choose its password, or read the random one printed
+to the log once. Sign in, then go to **Settings** to link your Real-Debrid
+account, add IPTV sources, and create accounts for other people (there is no
+public sign-up).
+
+### Docker
+
+```bash
+cp .env.example .env    # set MARQUEE_ADMIN_PASSWORD
+docker compose up -d --build   # http://127.0.0.1:11470/app/
+```
 
 ## Self-hosting for a group (one VPS, one key)
 

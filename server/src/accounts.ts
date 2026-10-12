@@ -50,6 +50,12 @@ function normalizeUsername(username: string): string {
 
 export class AccountStore {
   private accounts: Account[] = [];
+  /**
+   * Set once, on first run, when no MARQUEE_ADMIN_PASSWORD was provided and a
+   * password had to be generated. The caller prints it to the server log so the
+   * operator can sign in and change it. No password literal lives in source.
+   */
+  readonly generatedAdminPassword: string | null;
 
   constructor(private readonly file = path.join(appDir(), "accounts.json")) {
     try {
@@ -57,26 +63,29 @@ export class AccountStore {
     } catch {
       this.accounts = [];
     }
-    this.seedAdmin();
+    this.generatedAdminPassword = this.seedAdmin();
   }
 
   /**
-   * Ensure the admin account exists on first run. Credentials come from
-   * MARQUEE_ADMIN_USER / MARQUEE_ADMIN_PASSWORD, with documented defaults so a
-   * fresh deployment is immediately usable. Change them in production.
+   * Ensure the admin account exists on first run. Username and password come
+   * from MARQUEE_ADMIN_USER / MARQUEE_ADMIN_PASSWORD. When no password is set,
+   * a strong random one is generated and returned so the caller can print it
+   * once; there is no hardcoded default.
    */
-  private seedAdmin(): void {
-    if (this.accounts.some((a) => a.role === "admin")) return;
+  private seedAdmin(): string | null {
+    if (this.accounts.some((a) => a.role === "admin")) return null;
     const username = normalizeUsername(process.env.MARQUEE_ADMIN_USER || "aeon");
-    const password = process.env.MARQUEE_ADMIN_PASSWORD || "aeonsystemoverload";
+    const provided = process.env.MARQUEE_ADMIN_PASSWORD;
+    const generated = provided ? null : randomBytes(12).toString("base64url");
     this.accounts.push({
       id: randomBytes(8).toString("hex"),
       username,
       role: "admin",
-      passwordHash: hashPassword(password),
+      passwordHash: hashPassword(provided ?? generated!),
       createdAt: Date.now(),
     });
     this.save();
+    return generated;
   }
 
   private save(): void {

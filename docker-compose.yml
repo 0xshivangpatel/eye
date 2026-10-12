@@ -1,0 +1,25 @@
+# Marquee on a VPS: one server, one Real-Debrid account, your invited users.
+#
+#   cp .env.example .env    # set admin credentials, then:
+#   docker compose up -d --build
+#
+# Put this behind a TLS reverse proxy (Caddy/nginx) so the app and its
+# WebSocket are served over HTTPS. Link Real-Debrid from Settings after
+# signing in — the token is stored in the /data volume, never in this file.
+services:
+  marquee:
+    build: .
+    image: marquee:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11470:11470" # bind to loopback; let your reverse proxy terminate TLS
+    environment:
+      MARQUEE_ADMIN_USER: ${MARQUEE_ADMIN_USER:-aeon}
+      MARQUEE_ADMIN_PASSWORD: ${MARQUEE_ADMIN_PASSWORD:?set MARQUEE_ADMIN_PASSWORD in .env}
+      MARQUEE_ALLOWED_ORIGINS: ${MARQUEE_ALLOWED_ORIGINS:-}
+      MARQUEE_ADMIN_TOKEN: ${MARQUEE_ADMIN_TOKEN:-}
+    volumes:
+      - marquee-data:/data
+
+volumes:
+  marquee-data:

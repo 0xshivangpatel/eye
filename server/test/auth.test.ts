@@ -30,21 +30,32 @@ describe("password hashing", () => {
 describe("AccountStore", () => {
   it("seeds the admin from env and authenticates it", () => {
     process.env.MARQUEE_ADMIN_USER = "aeon";
-    process.env.MARQUEE_ADMIN_PASSWORD = "aeonsystemoverload";
+    process.env.MARQUEE_ADMIN_PASSWORD = "test-admin-pw-123";
     const store = new AccountStore(file);
     expect(store.list()).toHaveLength(1);
     expect(store.list()[0]).toMatchObject({ username: "aeon", role: "admin" });
-    expect(store.authenticate("AEON", "aeonsystemoverload")?.role).toBe("admin");
+    expect(store.authenticate("AEON", "test-admin-pw-123")?.role).toBe("admin");
     expect(store.authenticate("aeon", "nope")).toBeNull();
     // Hashes are never serialized in the public list.
     expect(JSON.stringify(store.list())).not.toContain("scrypt$");
   });
 
+  it("generates a random admin password when none is provided, with no default in source", () => {
+    const store = new AccountStore(file);
+    expect(store.generatedAdminPassword).toBeTruthy();
+    expect(store.generatedAdminPassword!.length).toBeGreaterThanOrEqual(12);
+    // The generated password actually works, and is not a known literal.
+    expect(store.authenticate("aeon", store.generatedAdminPassword!)?.role).toBe("admin");
+    expect(store.authenticate("aeon", "test-admin-pw-123")).toBeNull();
+    // A reload finds the existing admin and generates nothing further.
+    expect(new AccountStore(file).generatedAdminPassword).toBeNull();
+  });
+
   it("persists across reloads and never stores plaintext", () => {
-    process.env.MARQUEE_ADMIN_PASSWORD = "aeonsystemoverload";
+    process.env.MARQUEE_ADMIN_PASSWORD = "test-admin-pw-123";
     new AccountStore(file);
     const raw = fs.readFileSync(file, "utf8");
-    expect(raw).not.toContain("aeonsystemoverload");
+    expect(raw).not.toContain("test-admin-pw-123");
     const reloaded = new AccountStore(file);
     expect(reloaded.list()).toHaveLength(1); // did not re-seed a second admin
   });

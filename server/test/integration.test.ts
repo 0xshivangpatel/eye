@@ -18,7 +18,7 @@ let tmp: string;
 beforeAll(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "marquee-it-"));
   process.env.MARQUEE_ADMIN_USER = "aeon";
-  process.env.MARQUEE_ADMIN_PASSWORD = "aeonsystemoverload";
+  process.env.MARQUEE_ADMIN_PASSWORD = "test-admin-pw-123";
   instance = createServer({
     settingsFile: path.join(tmp, "settings.json"),
     accountsFile: path.join(tmp, "accounts.json"),
@@ -76,7 +76,7 @@ describe("auth", () => {
     const ok = await fetch(`${base}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: "aeon", password: "aeonsystemoverload" }),
+      body: JSON.stringify({ username: "aeon", password: "test-admin-pw-123" }),
     });
     expect(ok.status).toBe(200);
     expect((await ok.json()).user).toMatchObject({ username: "aeon", role: "admin" });
